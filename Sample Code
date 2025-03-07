@@ -1,0 +1,192 @@
+1. Automated Questionnaire Selection
+Our system intelligently selects and sends the right risk assessment questionnaires based on the vendor category.
+
+python
+import json
+
+def select_questionnaire(vendor_category):
+    questionnaires = {
+        "SaaS/API": "saas_questionnaire.json",
+        "Professional Services": "prof_services_questionnaire.json",
+        "AI Component": "ai_questionnaire.json"
+    }
+    return questionnaires.get(vendor_category, "default_questionnaire.json")
+
+def send_questionnaire(vendor_email, questionnaire_file):
+    with open(questionnaire_file, 'r') as file:
+        questionnaire = json.load(file)
+    
+    # Here you would implement the logic to send the questionnaire
+    print(f"Sending {questionnaire_file} to {vendor_email}")
+    print(f"Questionnaire contents: {questionnaire}")
+
+# Example usage
+vendor_category = "SaaS/API"
+vendor_email = "vendor@example.com"
+questionnaire_file = select_questionnaire(vendor_category)
+send_questionnaire(vendor_email, questionnaire_file)
+2. Smart Response Analysis
+Once vendors submit their responses, our system analyzes them to identify missing information, areas that need follow-up, and positive aspects.
+
+python
+import json
+from collections import defaultdict
+
+def analyze_responses(responses):
+    analysis = defaultdict(list)
+    
+    for question, answer in responses.items():
+        if not answer:
+            analysis["missing"].append(question)
+        elif len(answer) < 50:  # Arbitrary threshold for a detailed answer
+            analysis["follow_ups"].append(question)
+        elif any(keyword in answer.lower() for keyword in ["compliance", "security", "certified"]):
+            analysis["positives"].append(question)
+    
+    return dict(analysis)
+
+def review_vendor_responses(vendor_id, responses):
+    analysis = analyze_responses(responses)
+    summary = {
+        "vendor_id": vendor_id,
+        "missing_items": analysis["missing"],
+        "follow_ups": analysis["follow_ups"],
+        "positive_aspects": analysis["positives"]
+    }
+    return json.dumps(summary, indent=2)
+
+# Example usage
+vendor_responses = {
+    "Data encryption": "We use AES-256 encryption for all data at rest and in transit.",
+    "Access controls": "",
+    "Incident response": "We have a team.",
+    "Compliance certifications": "We are ISO 27001 certified and SOC 2 Type II compliant."
+}
+
+summary = review_vendor_responses("VendorA", vendor_responses)
+print(summary)
+3. AI-Powered Finding Generation
+We use natural language processing (NLP) to automatically generate standardized risk findings, including risk ratings and remediation rationales.
+
+python
+from transformers import pipeline
+
+def generate_finding(issue, risk_level):
+    nlg = pipeline("text-generation", model="gpt2")
+    prompt = f"A third party is not {issue}. This is a {risk_level} risk because"
+    generated_text = nlg(prompt, max_length=100, num_return_sequences=1)[0]['generated_text']
+    return generated_text
+
+# Example usage
+issue = "performing regular penetration testing"
+risk_level = "high"
+finding = generate_finding(issue, risk_level)
+print(finding)
+4. Continuous Vendor Monitoring
+Our system collects and stores vendor data from various external sources, enabling ongoing risk assessment.
+
+python
+import requests
+import sqlite3
+import schedule
+import time
+
+def collect_vendor_data(vendor_id, api_key):
+    url = f"https://api.example.com/vendor/{vendor_id}"
+    headers = {"Authorization": f"Bearer {api_key}"}
+    
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        data = response.json()
+        
+        conn = sqlite3.connect('vendor_data.db')
+        cursor = conn.cursor()
+        cursor.execute('''INSERT INTO vendor_monitoring 
+                          (vendor_id, financial_health, cyber_score, last_updated) 
+                          VALUES (?, ?, ?, datetime('now'))''', 
+                       (vendor_id, data['financial_health'], data['cyber_score']))
+        conn.commit()
+    except requests.RequestException as e:
+        print(f"Error collecting data for vendor {vendor_id}: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+def setup_database():
+    conn = sqlite3.connect('vendor_data.db')
+    cursor = conn.cursor()
+    cursor.execute('''CREATE TABLE IF NOT EXISTS vendor_monitoring
+                      (id INTEGER PRIMARY KEY,
+                       vendor_id TEXT,
+                       financial_health REAL,
+                       cyber_score REAL,
+                       last_updated DATETIME)''')
+    conn.commit()
+    conn.close()
+
+# Example usage
+setup_database()
+api_key = "your_api_key_here"
+
+def job():
+    collect_vendor_data("VendorA", api_key)
+    collect_vendor_data("VendorB", api_key)
+
+schedule.every().day.at("00:00").do(job)
+
+while True:
+    schedule.run_pending()
+    time.sleep(1)
+5. Dynamic Risk Dashboard
+Leadership can access a user-friendly dashboard that provides real-time risk metrics and insights.
+
+python
+import dash
+from dash import dcc, html
+from dash.dependencies import Input, Output
+import plotly.express as px
+import pandas as pd
+import sqlite3
+
+app = dash.Dash(__name__)
+
+def fetch_vendor_data():
+    conn = sqlite3.connect('vendor_data.db')
+    df = pd.read_sql_query("SELECT * FROM vendor_monitoring", conn)
+    conn.close()
+    return df
+
+def generate_insights(df):
+    # Simple example of generating insights
+    avg_cyber_score = df['cyber_score'].mean()
+    worst_vendor = df.loc[df['cyber_score'].idxmin(), 'vendor_id']
+    return f"Average cyber score: {avg_cyber_score:.2f}. Vendor {worst_vendor} has the lowest score."
+
+app.layout = html.Div([
+    html.H1("Third Party Risk Management Dashboard"),
+    dcc.Graph(id='risk-overview'),
+    html.Div(id='ai-insights'),
+    dcc.Interval(
+        id='interval-component',
+        interval=60*60*1000,  # in milliseconds, update every hour
+        n_intervals=0
+    )
+])
+
+@app.callback(
+    Output('risk-overview', 'figure'),
+    Output('ai-insights', 'children'),
+    Input('interval-component', 'n_intervals')
+)
+def update_dashboard(n):
+    df = fetch_vendor_data()
+    fig = px.scatter(df, x='financial_health', y='cyber_score', 
+                     color='vendor_id', size='cyber_score',
+                     hover_data=['last_updated'],
+                     title='Vendor Risk Overview')
+    insights = generate_insights(df)
+    return fig, html.P(insights)
+
+if __name__ == '__main__':
+    app.run_server(debug=True)
